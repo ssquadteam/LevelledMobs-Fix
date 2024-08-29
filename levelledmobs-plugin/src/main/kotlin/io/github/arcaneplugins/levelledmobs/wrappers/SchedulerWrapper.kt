@@ -7,6 +7,7 @@ import io.github.arcaneplugins.levelledmobs.LevelledMobs
 import org.bukkit.Bukkit
 import org.bukkit.Location
 import org.bukkit.entity.Entity
+import org.bukkit.scheduler.BukkitTask
 
 /**
  * This class is used for when code needs to be executed in a specific thread context.
@@ -20,6 +21,8 @@ import org.bukkit.entity.Entity
 class SchedulerWrapper {
     var runnable: Runnable? = null
     var entity: Entity? = null
+    var bukkitTask: BukkitTask? = null
+        private set
 
     constructor(runnable: Runnable){
         this.runnable = runnable
@@ -48,7 +51,7 @@ class SchedulerWrapper {
 
             val task = Consumer { _: ScheduledTask -> runnable!!.run() }
 
-            if (entity != null) {
+            bukkitTask = if (entity != null) {
                 entity!!.scheduler.run(main, task, null)
             } else {
                 if (locationForRegionScheduler != null) {

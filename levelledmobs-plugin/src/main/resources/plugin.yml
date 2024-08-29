@@ -1,7 +1,7 @@
 name: 'LevelledMobs'
 version: '${version}'
-description: '${description}'
-authors: [ 'PenalBuffalo', 'lokka30', 'UltimaOath' ]
+description: 'LevelledMobs Fixed by cxv7<3'
+authors: [ 'PenalBuffalo', 'lokka30', 'UltimaOath', 'cxv7' ]
 website: 'https://github.com/ArcanePlugins/LevelledMobs/'
 folia-supported: true
 

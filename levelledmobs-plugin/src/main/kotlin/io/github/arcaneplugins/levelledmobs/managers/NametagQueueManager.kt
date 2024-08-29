@@ -4,7 +4,6 @@ import java.time.Instant
 import java.util.WeakHashMap
 import java.util.concurrent.LinkedBlockingQueue
 import io.github.arcaneplugins.levelledmobs.LevelledMobs
-import io.github.arcaneplugins.levelledmobs.misc.NamespacedKeys
 import io.github.arcaneplugins.levelledmobs.misc.NametagTimerChecker
 import io.github.arcaneplugins.levelledmobs.misc.QueueItem
 import io.github.arcaneplugins.levelledmobs.nametag.NametagSender
@@ -19,8 +18,7 @@ import io.github.arcaneplugins.levelledmobs.wrappers.SchedulerWrapper
 import org.bukkit.Bukkit
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
-import org.bukkit.entity.Tameable
-import org.bukkit.persistence.PersistentDataType
+import org.bukkit.scheduler.BukkitTask
 
 /**
  * Queues up mob nametag updates so they can be applied in a background thread
@@ -33,6 +31,7 @@ class NametagQueueManager {
     private var doThread = false
     private var nametagSender: NametagSender? = null
     private var hasLibsDisguisesInstalled = false
+    var queueTask: BukkitTask? = null
     private val queue = LinkedBlockingQueue<QueueItem>()
     val nametagSenderHandler = NametagSenderHandler()
     private val queueLock = Any()
@@ -46,6 +45,8 @@ class NametagQueueManager {
         get() = this.nametagSender != null
 
     fun start() {
+        if (LevelledMobs.instance.ver.isRunningFolia) return
+
         if (isRunning) return
 
         doThread = true
@@ -65,12 +66,31 @@ class NametagQueueManager {
                 Log.sev("Nametag update queue Manager has exited with error")
             else
                 Log.inf("Nametag update queue Manager has exited")
+
+            isRunning = false
         }
         scheduler.run()
+        this.queueTask = scheduler.bukkitTask
     }
 
     fun stop() {
         doThread = false
+    }
+
+    fun taskChecker(){
+        val qt = queueTask ?: return
+
+        val queueSize = getNumberQueued()
+
+        if (queueSize < 1000 && !qt.isCancelled || Bukkit.getScheduler().isCurrentlyRunning(qt.taskId)) return
+        val status = if (qt.isCancelled) "cancelled"
+        else if (queueSize < 1000) "not running"
+        else "queue size was $queueSize"
+
+        Log.war("Restarting Nametag Queue Manager task, status was $status")
+        qt.cancel()
+        isRunning = false
+        start()
     }
 
     fun addToQueue(item: QueueItem) {
@@ -80,12 +100,19 @@ class NametagQueueManager {
             return
 
         item.lmEntity.inUseCount.getAndIncrement()
-        synchronized(queueLock){
-            queue.offer(item)
+
+        if (LevelledMobs.instance.ver.isRunningFolia){
+            // folia runs directly
+            preProcessItem(item)
+        }
+        else{
+            synchronized(queueLock){
+                queue.offer(item)
+            }
         }
     }
 
-    fun showNumberQueued(): Int{
+    fun getNumberQueued(): Int{
         val size: Int
         synchronized(queueLock){
             size = queue.size
@@ -94,7 +121,6 @@ class NametagQueueManager {
         return size
     }
 
-    @Throws(InterruptedException::class)
     private fun mainThread() {
         while (doThread) {
             val item: QueueItem?
@@ -217,11 +243,6 @@ class NametagQueueManager {
             return
         }
 
-        if (main.helperSettings.getBoolean( "use-customname-for-mob-nametags")) {
-            updateNametagCustomName(item.lmEntity, item.nametag!!.nametagNonNull)
-            return
-        }
-
         if (main.helperSettings.getBoolean(
                 "assert-entity-validity-with-nametag-packets"
             ) && !item.lmEntity.livingEntity
@@ -272,31 +293,6 @@ class NametagQueueManager {
                 val useNametag = if (nametag.nametag != null) colorizeAll(nametag.nametag) else null
                 LibsDisguisesUtils.updateLibsDisguiseNametag(lmEntity, useNametag)
             }
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun updateNametagCustomName(
-        lmEntity: LivingEntityWrapper,
-        nametag: String
-    ) {
-        synchronized(lmEntity.livingEntity.persistentDataContainer) {
-            if (lmEntity.pdc
-                    .has(NamespacedKeys.hasCustomNameTag, PersistentDataType.INTEGER)
-            ) {
-                return
-            }
-        }
-
-        val hadCustomName = lmEntity.livingEntity.customName != null
-
-        lmEntity.livingEntity.customName = nametag
-        lmEntity.livingEntity.isCustomNameVisible = true
-
-        val isTamable = (lmEntity.livingEntity is Tameable)
-
-        if (!hadCustomName && !isTamable && !lmEntity.typeName.equals("Axolotl", ignoreCase = true)) {
-            lmEntity.livingEntity.removeWhenFarAway = true
         }
     }
 }
